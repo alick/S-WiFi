@@ -21,6 +21,7 @@
 \usepackage{float}
 
 
+\lstMakeShortInline|
 
 \lstset{
 basicstyle=\ttfamily,
@@ -103,46 +104,6 @@ For the medium access control (MAC) layer, we use the 802.11 module built in ns-
 \frenchspacing In PCF mode, the AP decides which client can transmit: The AP will first send a POLL packet to the selected client. A client can only transmit its packet after it receives the POLL packet from the AP. This allows the AP to have full control over which client transmits. However, there is one problem: Packets arrive at the clients, and the AP cannot know which client has packets for transmission. Baseline policy: At the beginning of each interval, the AP asks each client, one by one, the number of packets that it generates. After this process, the AP also knows the number of packets at each client, and it can make the best decision.
 
 
-First of all, the server can poll packets or poll data implemented by function \lstinline |command| in the swifi.cc file. Then, the client enables to send number of packets or data to the server implemented by function \lstinline |recv| in the swifi.cc file. Also, we need function \lstinline |scheduleRoundRobin| to let AP ask each client one by one the number of packets that it generates at the beginning of each interval. Then, we need function \lstinline |scheduleMaxWeight| to implement maxweight policy. 
-
-Besides, we define four packet types. 
-\begin{table}[h!]
-   \centering
-   \caption{Data Type}
-   \label{tab:table3}
-   \begin{tabular}{| l | l |}
-      \hline
-      Data Type  &  Meaning\\ \hline
-      \lstinline |SWiFi_POLL_NUM| & Poll number of packets in uplink\\ \hline 
-      \lstinline |SWiFi_PKT_POLL_DATA|  & Poll data packet transmission in uplink\\ \hline 
-      \lstinline |SWiFi_PKT_NUM_UL| & Packet in uplink that carries number of packets at client\\ \hline 
-      \lstinline |SWiFi_PKT_DATA_UL| & Data packet in uplink(client to server)\\  
-     \hline
-   \end{tabular}
-\end{table}
- 
-  
-What's more, four poll states are defined below. 
-\begin{table}[h!]
-   \centering
-   \caption{Poll State}
-   \label{tab:table4}
-   \begin{tabular}{| l | l |}
-      \hline
-      Poll State  &  Meaning\\ \hline
-      \lstinline |SWiFi_POLL_NONE| & Poll nothing\\ \hline 
-      \lstinline |SWiFi_POLL_NUM|  & Poll num of packets\\ \hline 
-      \lstinline |SWiFi_POLL_DATA| & Poll data\\ \hline 
-      \lstinline |SWiFi_POLL_IDLE| & Idle\\  
-     \hline
-   \end{tabular}
-\end{table}
-     
-\begin{figure}[H]
-\centering
-\includegraphics[scale=0.6]{header.pdf}
-\caption{Packet Type}
-\end{figure}
 
 However, there are still some issues. Look at Figure 2, there is a possibility that AP Poll-X or a client poll X1 is not delivered successfully. Our method is retransmit Poll-X until the AP receives Xn. And we just set Xn = 0 if poll X does not deliver successfully. 
 
@@ -169,9 +130,81 @@ Look at Figure 4, what does "Xn" mean for non-real-time traffic? The answer is t
 \end{figure}
 
 
-\section{Implementation in NS-2}
+\section{Implementation in ns-2}
 \label{section: ns2}
-In our SWiFi project, the way we implement baseline policy is described as follows. 
+
+Because there is no PCF functions available in 802.11 Mac module in ns-2, and we
+prefer to make minimal changes to the 802.11 Mac implementation itself, we
+implement the PCF functions with the baseline policy in the application layer,
+where we define the \lstinline|hdr_swifi| packet header and the \lstinline|SWiFiAgent| class.
+
+In the beginning of simulation, one node becomes the server AP by issuing the
+\lstinline|server| command. For example,
+\lstinline|$sw(0) server| makes the zeroth node the server.
+Client registration is done by the \lstinline|register|
+command. For instance, \lstinline|$sw_(0) register 1 0.5|
+registers node 1 as a client with channel reliability $0.5$.%
+\footnote{We use a lookup table to map the distance between the server and the
+client to the channel reliability based on the result of reliability measurement
+in project 1.}
+
+\newcommand\CC{C\nolinebreak[4]\hspace{-.05em}\raisebox{0.3ex}{++}}
+
+In the beginning of each interval, the server calls |boi|, which stands for
+``beginning of interval'', to reset its internal state and packet counters.
+Each client generates a random number of packets from a uniform distribution,
+and uses the |pour| command to make it available from Tcl to \CC.
+
+At each time slot, the server executes the \lstinline |poll| command.
+Based on its state, it either sends a certain type of poll packet, or idle.
+In the beginning of each interval, the server is in the |SWiFi_POLL_NUM| state,
+and calls \lstinline |scheduleRoundRobin(false)| to decide which client is the
+target to poll the number of new packets. |scheduleRoundRobin| schedules the
+client one by one in the order of initial registration, and here |false| means
+once all clients have been scheduled exactly once, no one will be scheduled
+again, instead of scheduling from the first one repeatedly.
+
+Then, we need function \lstinline |scheduleMaxWeight| to implement maxweight policy. 
+
+Besides, we define four packet types. 
+\begin{table}[h!]
+   \centering
+   \caption{Packet types.}
+   \label{tab:table3}
+   \begin{tabular}{| l | l |}
+      \hline
+      Packet Type  &  Meaning\\ \hline
+      \lstinline |SWiFi_POLL_NUM| & Poll number of packets in uplink\\ \hline 
+      \lstinline |SWiFi_PKT_POLL_DATA|  & Poll data packet transmission in uplink\\ \hline 
+      \lstinline |SWiFi_PKT_NUM_UL| & Packet in uplink that carries number of packets at client\\ \hline 
+      \lstinline |SWiFi_PKT_DATA_UL| & Data packet in uplink (client to server)\\  
+     \hline
+   \end{tabular}
+\end{table}
+ 
+  
+What's more, four poll states are defined below. 
+\begin{table}[h!]
+   \centering
+   \caption{Poll states.}
+   \label{tab:table4}
+   \begin{tabular}{| l | l |}
+      \hline
+      Poll State  &  Meaning\\ \hline
+      \lstinline |SWiFi_POLL_NONE| & Uninitialized \\ \hline 
+      \lstinline |SWiFi_POLL_NUM|  & Poll the number of packets\\ \hline 
+      \lstinline |SWiFi_POLL_DATA| & Poll a data packet\\ \hline 
+      \lstinline |SWiFi_POLL_IDLE| & Idle\\  
+     \hline
+   \end{tabular}
+\end{table}
+     
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.6]{header.pdf}
+\caption{Packet Type}
+\end{figure}
+
 
 In the \lstinline |command| function in swifi.cc
 
